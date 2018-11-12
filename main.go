@@ -341,7 +341,7 @@ func main() {
 
 	result, err = fetchAWSCredentials(arn, idToken.rawToken, idToken.email)
 	if err != nil {
-		log.Fatal(errors.Wrap(err, "error fetching aws credentials"))
+		log.Fatal(errors.Wrap(err, fmt.Sprintf(`error fetching aws credentials (is %q an allowed value for "accounts.google.com:sub" in Trust relationship conditions for role?)`, idToken.sub)))
 	}
 
 	if err := printCredentials(result); err != nil {
