@@ -173,45 +173,12 @@ func handleOAuth2Callback(provider *oidc.Provider, oauth2Config oauth2.Config, s
 			return
 		}
 
-		arn := ""
-		if len(os.Args) > 1 {
-			arn = os.Args[1]
-		}
-
-		if arn == "" {
-			writeString(w, fmt.Sprintf("no role ARN provided<br>claims: %+v", claims))
-			err = errors.New("error: no arn provided")
-			return
-		}
-
-		input := sts.AssumeRoleWithWebIdentityInput{
-			RoleArn:          &arn,
-			RoleSessionName:  &claims.Email,
-			WebIdentityToken: &rawIDToken,
-		}
-
-		type Result struct {
-			Version int
-			sts.Credentials
-		}
-
-		sess, err := session.NewSession()
+		result, err := fetchAWSCredentials(rawIDToken, claims.Email)
 		if err != nil {
-			err = writeError(w, err, "error creating aws session")
+			err = writeError(w, err, "error fetching aws credentials")
 			return
 		}
 
-		svc := sts.New(sess)
-		output, err := svc.AssumeRoleWithWebIdentity(&input)
-		if err != nil {
-			err = writeError(w, err, fmt.Sprintf("error assuming role %q with web identity", arn))
-			return
-		}
-
-		result := Result{
-			Version:     1,
-			Credentials: *output.Credentials,
-		}
 		b, err := json.Marshal(result)
 		if err != nil {
 			err = writeError(w, err, "error serialising credentials to json")
@@ -230,4 +197,44 @@ func writeString(w http.ResponseWriter, s string) {
 	// <link> is to prevent browsers trying to load a favicon for this page
 	w.Write([]byte(`<!DOCTYPE html><html><link rel="icon" href="data:;base64,iVBORw0KGgo="><body>` + s))
 
+}
+
+type result struct {
+	Version int
+	sts.Credentials
+}
+
+func fetchAWSCredentials(token string, sessionName string) (*result, error) {
+	arn := ""
+	if len(os.Args) > 1 {
+		arn = os.Args[1]
+	}
+
+	if arn == "" {
+		return nil, errors.New("error: no arn provided")
+	}
+
+	input := sts.AssumeRoleWithWebIdentityInput{
+		RoleArn:          &arn,
+		RoleSessionName:  &sessionName,
+		WebIdentityToken: &token,
+	}
+
+	sess, err := session.NewSession()
+	if err != nil {
+		return nil, errors.Wrap(err, "error creating aws session")
+	}
+
+	svc := sts.New(sess)
+	output, err := svc.AssumeRoleWithWebIdentity(&input)
+	if err != nil {
+		return nil, errors.Wrap(err, fmt.Sprintf("error assuming role %q with web identity", arn))
+	}
+
+	result := result{
+		Version:     1,
+		Credentials: *output.Credentials,
+	}
+
+	return &result, nil
 }
