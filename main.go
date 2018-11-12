@@ -6,11 +6,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path"
+	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -232,7 +235,70 @@ func fetchAWSCredentials(arn, token, sessionName string) (*result, error) {
 		Credentials: *output.Credentials,
 	}
 
+	bytes, err := json.Marshal(result)
+	if err != nil {
+		return nil, errors.Wrap(err, "error serialising credentials to json")
+	}
+
+	filename := arnFilename(arn)
+
+	err = ioutil.WriteFile(filename, bytes, 0600)
+	if err != nil {
+		return nil, errors.Wrap(err, fmt.Sprintf("error writing credentials to file %q", filename))
+	}
+
 	return &result, nil
+}
+
+func arnFilename(arn string) string {
+	arn = strings.Replace(arn, "/", "-", -1)
+	arn = strings.Replace(arn, ":", "-", -1)
+	return path.Join(os.Getenv("HOME"), ".oidc2aws", arn)
+}
+
+func credentialsForRole(arn string) (*result, error) {
+	result := result{}
+
+	filename := arnFilename(arn)
+
+	data, err := ioutil.ReadFile(filename)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+
+		return nil, errors.Wrap(err, fmt.Sprintf("error reading credential cache file %q", filename))
+	}
+
+	err = json.Unmarshal(data, &result)
+	if err != nil {
+		return nil, errors.Wrap(err, fmt.Sprintf("error decoding credential cache from file %q", filename))
+	}
+
+	// check token expires > 5 minutes from now
+	if result.Expiration == nil {
+		return nil, nil
+	} else if (*result.Expiration).Add(-5 * time.Minute).Before(time.Now()) {
+		err := os.Remove(filename)
+		if err != nil {
+			err = errors.Wrap(err, fmt.Sprintf("error removing expired credentials in file %q", filename))
+		}
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func printCredentials(result *result) error {
+	b, err := json.Marshal(result)
+	if err != nil {
+		return errors.Wrap(err, "error serialising credentials to json")
+	}
+
+	// Write credentials to stdout
+	_, err = os.Stdout.Write(b)
+
+	return err
 }
 
 func main() {
@@ -247,6 +313,17 @@ func main() {
 	}
 
 	// Check for AWS credentials for role, use them if not expired
+	result, err := credentialsForRole(arn)
+	if err != nil {
+		log.Fatal(errors.Wrap(err, "error reading credentials for role"))
+	} else if result != nil {
+		err := printCredentials(result)
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
 	// Check for ID Token, use it if not expired
 	// Fetch ID token
 	// Cache ID token
@@ -257,16 +334,12 @@ func main() {
 		log.Fatal(errors.Wrap(err, "error fetching id token"))
 	}
 
-	result, err := fetchAWSCredentials(arn, idToken.rawToken, idToken.email)
+	result, err = fetchAWSCredentials(arn, idToken.rawToken, idToken.email)
 	if err != nil {
 		log.Fatal(errors.Wrap(err, "error fetching aws credentials"))
 	}
 
-	b, err := json.Marshal(result)
-	if err != nil {
-		log.Fatal(errors.Wrap(err, "error serialising credentials to json"))
+	if err := printCredentials(result); err != nil {
+		log.Fatal(errors.Wrap(err, "error printing credentials"))
 	}
-
-	// Write credentials to stdout
-	os.Stdout.Write(b)
 }
