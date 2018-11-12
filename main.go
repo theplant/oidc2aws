@@ -26,19 +26,30 @@ type oidcConfig struct {
 	ClientSecret string
 }
 
-func main() {
+type idTokenResult struct {
+	rawToken string
+	token    *oidc.IDToken
+	email    string
+	sub      string
+}
+
+type idTokenMessage struct {
+	result idTokenResult
+	err    error
+}
+
+func fetchIDToken() (*idTokenResult, error) {
+	oc := oidcConfig{}
+
+	if _, err := toml.DecodeFile(path.Join(os.Getenv("HOME"), ".oidc2aws", "oidcconfig"), &oc); err != nil {
+		return nil, errors.Wrap(err, "error loading OIDC config")
+	}
 
 	ctx := context.Background()
 
-	oc := oidcConfig{}
-
-	if _, err := toml.DecodeFile(path.Join(os.Getenv("HOME"), ".oidc2aws", "oidcConfig"), &oc); err != nil {
-		log.Fatal(errors.Wrap(err, "error loading OIDC config"))
-	}
-
 	provider, err := oidc.NewProvider(ctx, oc.Provider)
 	if err != nil {
-		log.Fatal(errors.Wrap(err, "error creating oidc provider"))
+		return nil, errors.Wrap(err, "error creating oidc provider")
 	}
 
 	redirectURL := "http://localhost:9999/code"
@@ -61,7 +72,7 @@ func main() {
 	_, err = rand.Read(rawState[:])
 
 	if err != nil {
-		log.Fatal(errors.Wrap(err, "error generating oauth state"))
+		return nil, errors.Wrap(err, "error generating oauth state")
 	}
 
 	state := hex.EncodeToString(rawState[:])
@@ -72,7 +83,7 @@ func main() {
 	)
 	cmd := exec.Command("open", url)
 	if err := cmd.Run(); err != nil {
-		log.Fatal(errors.Wrap(err, "error opening page in browser"))
+		return nil, errors.Wrap(err, "error opening page in browser")
 	}
 
 	server := http.Server{
@@ -80,34 +91,38 @@ func main() {
 	}
 	server.SetKeepAlivesEnabled(false)
 
-	requestSignal := make(chan error)
-	serverSignal := make(chan bool)
+	requestSignal := make(chan idTokenMessage)
+	serverSignal := make(chan idTokenMessage)
 
 	server.Handler = handleOAuth2Callback(provider, oauth2Config, state, requestSignal)
 
 	go func() {
-		err := <-requestSignal
+		result := <-requestSignal
 
-		err2 := server.Shutdown(ctx)
-
-		if err2 != nil {
-			log.Fatal(errors.Wrap(err2, "error on server shutdown"))
-		}
+		err := server.Shutdown(ctx)
 
 		if err != nil {
-			log.Fatal(err)
+			result = idTokenMessage{
+				err: errors.Wrap(err, "error on server shutdown"),
+			}
 		}
 
-		serverSignal <- true
+		serverSignal <- result
 	}()
 
 	err = server.ListenAndServe()
 
 	if err != nil && err != http.ErrServerClosed {
-		log.Fatal(errors.Wrap(err, "error from server.ListenAndServe"))
+		return nil, errors.Wrap(err, "error from server.ListenAndServe")
 	}
 
-	<-serverSignal
+	result := <-serverSignal
+
+	if result.err != nil {
+		return nil, err
+	}
+
+	return &result.result, nil
 }
 
 func writeError(w http.ResponseWriter, err error, msg string) error {
@@ -123,42 +138,36 @@ func writeError(w http.ResponseWriter, err error, msg string) error {
 	return err
 }
 
-func handleOAuth2Callback(provider *oidc.Provider, oauth2Config oauth2.Config, state string, signal chan error) http.HandlerFunc {
+func handleOAuth2Callback(provider *oidc.Provider, oauth2Config oauth2.Config, state string, signal chan idTokenMessage) http.HandlerFunc {
 
 	verifier := provider.Verifier(&oidc.Config{ClientID: oauth2Config.ClientID})
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		var err error
-		// Quit after processing a single request
-		defer func() {
-			signal <- err
-		}()
-
 		// Verify request state matches response state
 		reqState := r.URL.Query().Get("state")
 		if reqState != state {
-			err = writeError(w, nil, "response state does not match request state")
+			signal <- idTokenMessage{err: writeError(w, nil, "response state does not match request state")}
 			return
 		}
 
 		// Exchange authorisation code for access/id token
 		oauth2Token, err := oauth2Config.Exchange(r.Context(), r.URL.Query().Get("code"))
 		if err != nil {
-			err = writeError(w, err, "error exchanging authorisation code for access/id tokens")
+			signal <- idTokenMessage{err: writeError(w, err, "error exchanging authorisation code for access/id tokens")}
 			return
 		}
 
 		// Extract ID Token from OAuth2 token.
 		rawIDToken, ok := oauth2Token.Extra("id_token").(string)
 		if !ok {
-			err = writeError(w, nil, "no id_token included when fetching access token")
+			signal <- idTokenMessage{err: writeError(w, nil, "no id_token included when fetching access token")}
 			return
 		}
 
 		// Parse and verify ID Token payload.
 		idToken, err := verifier.Verify(r.Context(), rawIDToken)
 		if err != nil {
-			err = writeError(w, err, "error verifying id token")
+			signal <- idTokenMessage{err: writeError(w, err, "error verifying id token")}
 			return
 		}
 
@@ -169,24 +178,19 @@ func handleOAuth2Callback(provider *oidc.Provider, oauth2Config oauth2.Config, s
 		}
 		err = idToken.Claims(&claims)
 		if err != nil {
-			err = writeError(w, err, "error extracting claims from id token")
+			signal <- idTokenMessage{err: writeError(w, err, "error extracting claims from id token")}
 			return
 		}
 
-		result, err := fetchAWSCredentials(rawIDToken, claims.Email)
-		if err != nil {
-			err = writeError(w, err, "error fetching aws credentials")
-			return
+		// Pass result back
+		signal <- idTokenMessage{
+			result: idTokenResult{
+				rawToken: rawIDToken,
+				token:    idToken,
+				email:    claims.Email,
+				sub:      claims.Subject,
+			},
 		}
-
-		b, err := json.Marshal(result)
-		if err != nil {
-			err = writeError(w, err, "error serialising credentials to json")
-			return
-		}
-
-		// Write credentials to stdout
-		os.Stdout.Write(b)
 
 		// Close the browser window
 		writeString(w, "<script>window.close()</script>")
@@ -204,15 +208,7 @@ type result struct {
 	sts.Credentials
 }
 
-func fetchAWSCredentials(token string, sessionName string) (*result, error) {
-	arn := ""
-	if len(os.Args) > 1 {
-		arn = os.Args[1]
-	}
-
-	if arn == "" {
-		return nil, errors.New("error: no arn provided")
-	}
+func fetchAWSCredentials(arn, token, sessionName string) (*result, error) {
 
 	input := sts.AssumeRoleWithWebIdentityInput{
 		RoleArn:          &arn,
@@ -237,4 +233,40 @@ func fetchAWSCredentials(token string, sessionName string) (*result, error) {
 	}
 
 	return &result, nil
+}
+
+func main() {
+
+	arn := ""
+	if len(os.Args) > 1 {
+		arn = os.Args[1]
+	}
+
+	if arn == "" {
+		log.Fatal("no arn provided in Args[1]")
+	}
+
+	// Check for AWS credentials for role, use them if not expired
+	// Check for ID Token, use it if not expired
+	// Fetch ID token
+	// Cache ID token
+	// Fetch AWS credentials
+
+	idToken, err := fetchIDToken()
+	if err != nil {
+		log.Fatal(errors.Wrap(err, "error fetching id token"))
+	}
+
+	result, err := fetchAWSCredentials(arn, idToken.rawToken, idToken.email)
+	if err != nil {
+		log.Fatal(errors.Wrap(err, "error fetching aws credentials"))
+	}
+
+	b, err := json.Marshal(result)
+	if err != nil {
+		log.Fatal(errors.Wrap(err, "error serialising credentials to json"))
+	}
+
+	// Write credentials to stdout
+	os.Stdout.Write(b)
 }
