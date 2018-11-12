@@ -153,6 +153,10 @@ $ aws --profile=my-profile sts get-caller-identity
 
 * Review the system design to identify flaws in the security model.
 
+* Get a refresh token from Google when fetching an access token, and
+  store it in the system keychain. Then use that to fetch new
+  access/id tokens instead of re-authenticating via the web.
+
 # Background
 
 To eliminate the use of permanent AWS credentials, we looked at
