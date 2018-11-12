@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 
+	"github.com/BurntSushi/toml"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/coreos/go-oidc"
@@ -18,24 +20,33 @@ import (
 	"golang.org/x/oauth2"
 )
 
+type oidcConfig struct {
+	Provider     string
+	ClientID     string
+	ClientSecret string
+}
+
 func main() {
 
 	ctx := context.Background()
 
-	provider, err := oidc.NewProvider(ctx, "https://accounts.google.com")
+	oc := oidcConfig{}
+
+	if _, err := toml.DecodeFile(path.Join(os.Getenv("HOME"), ".oidc2aws", "oidcConfig"), &oc); err != nil {
+		log.Fatal(errors.Wrap(err, "error loading OIDC config"))
+	}
+
+	provider, err := oidc.NewProvider(ctx, oc.Provider)
 	if err != nil {
 		log.Fatal(errors.Wrap(err, "error creating oidc provider"))
 	}
-
-	clientID := "224600073722-o248pf5sr04qkpr3dnloismhub2mae0q.apps.googleusercontent.com"
-	clientSecret := ""
 
 	redirectURL := "http://localhost:9999/code"
 
 	// Configure an OpenID Connect aware OAuth2 client.
 	oauth2Config := oauth2.Config{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
+		ClientID:     oc.ClientID,
+		ClientSecret: oc.ClientSecret,
 		RedirectURL:  redirectURL,
 
 		// Discovery returns the OAuth2 endpoints.
