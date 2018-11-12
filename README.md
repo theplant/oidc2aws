@@ -53,6 +53,7 @@ Create a file in `$HOME/.oidc2aws/oidcconfig`, with contents of:
 Provider = "https://accounts.google.com"
 ClientID = "<client ID>"
 ClientSecret = "<client secret>"
+HostedDomain = "<G Suite email address domain>"
 ```
 
 ## 3. Create AWS IAM Role

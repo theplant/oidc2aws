@@ -27,6 +27,7 @@ type oidcConfig struct {
 	Provider     string
 	ClientID     string
 	ClientSecret string
+	HostedDomain string
 }
 
 type idTokenResult struct {
@@ -81,8 +82,12 @@ func fetchIDToken() (*idTokenResult, error) {
 	state := hex.EncodeToString(rawState[:])
 
 	url := oauth2Config.AuthCodeURL(state,
-		oauth2.SetAuthURLParam("hd", "theplant.jp"),
-		//oauth2.SetAuthURLParam("prompt", "consent")
+		oauth2.SetAuthURLParam("hd", oc.HostedDomain),
+
+		// If this is set, or if the user actually needs to
+		// authenticate, we aren't able to automatically close the
+		// browser window after authentication :(
+		// oauth2.SetAuthURLParam("prompt", "consent")
 	)
 	cmd := exec.Command("open", url)
 	if err := cmd.Run(); err != nil {
