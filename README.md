@@ -104,7 +104,7 @@ the role as usual.
 
 Make a note of the ARN for the role you created in the previous step.
 
-edit `$HOME/.config`, and add a profile section:
+edit `$HOME/.aws/config`, and add a profile section:
 
 ```
 [profile my-profile]
