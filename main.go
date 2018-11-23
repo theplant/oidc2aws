@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -41,6 +42,8 @@ type idTokenMessage struct {
 	result idTokenResult
 	err    error
 }
+
+var envFormat = flag.Bool("env", false, "output credentials in format suitable for use with $()")
 
 func fetchIDToken() (*idTokenResult, error) {
 	oc := oidcConfig{}
@@ -295,22 +298,32 @@ func credentialsForRole(arn string) (*result, error) {
 }
 
 func printCredentials(result *result) error {
-	b, err := json.Marshal(result)
-	if err != nil {
-		return errors.Wrap(err, "error serialising credentials to json")
+	if !*envFormat {
+		b, err := json.Marshal(result)
+		if err != nil {
+			return errors.Wrap(err, "error serialising credentials to json")
+		}
+
+		// Write credentials to stdout
+		_, err = os.Stdout.Write(b)
+
+		return err
 	}
-
-	// Write credentials to stdout
-	_, err = os.Stdout.Write(b)
-
-	return err
+	fmt.Printf("export AWS_ACCESS_KEY_ID=%s\n", *result.Credentials.AccessKeyId)
+	fmt.Printf("export AWS_SECRET_ACCESS_KEY=%s\n", *result.Credentials.SecretAccessKey)
+	fmt.Printf("export AWS_SESSION_TOKEN=%s\n", *result.Credentials.SessionToken)
+	return nil
 }
 
 func main() {
 
+	flag.Parse()
+
+	args := flag.Args()
+
 	arn := ""
-	if len(os.Args) > 1 {
-		arn = os.Args[1]
+	if len(args) > 0 {
+		arn = args[0]
 	}
 
 	if arn == "" {
