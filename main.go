@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/aws/aws-sdk-go/aws"
+	awscreds "github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/coreos/go-oidc"
@@ -44,6 +46,8 @@ type idTokenMessage struct {
 }
 
 var envFormat = flag.Bool("env", false, "output credentials in format suitable for use with $()")
+
+var sourceRole = flag.String("sourcerole", "", "source role to assume before assuming target role")
 
 func fetchIDToken() (*idTokenResult, error) {
 	oc := oidcConfig{}
@@ -258,6 +262,50 @@ func fetchAWSCredentials(arn, token, sessionName string) (*result, error) {
 	return &result, nil
 }
 
+func assumeRole(arn, sessionName string, credentials *result) (*result, error) {
+
+	input := sts.AssumeRoleInput{
+		RoleArn:         &arn,
+		RoleSessionName: &sessionName,
+	}
+
+	sess, err := session.NewSession(
+		aws.NewConfig().WithCredentials(
+			awscreds.NewStaticCredentials(
+				*credentials.Credentials.AccessKeyId,
+				*credentials.Credentials.SecretAccessKey,
+				*credentials.Credentials.SessionToken,
+			)))
+	if err != nil {
+		return nil, errors.Wrap(err, "error creating aws session")
+	}
+
+	svc := sts.New(sess)
+	output, err := svc.AssumeRole(&input)
+	if err != nil {
+		return nil, errors.Wrap(err, fmt.Sprintf("error assuming role %q", arn))
+	}
+
+	result := result{
+		Version:     1,
+		Credentials: *output.Credentials,
+	}
+
+	bytes, err := json.Marshal(result)
+	if err != nil {
+		return nil, errors.Wrap(err, "error serialising credentials to json")
+	}
+
+	filename := arnFilename(arn)
+
+	err = ioutil.WriteFile(filename, bytes, 0600)
+	if err != nil {
+		return nil, errors.Wrap(err, fmt.Sprintf("error writing credentials to file %q", filename))
+	}
+
+	return &result, nil
+}
+
 func arnFilename(arn string) string {
 	arn = strings.Replace(arn, "/", "-", -1)
 	arn = strings.Replace(arn, ":", "-", -1)
@@ -347,14 +395,25 @@ func main() {
 	// Cache ID token
 	// Fetch AWS credentials
 
+	if *sourceRole == "" {
+		*sourceRole = arn
+	}
+
 	idToken, err := fetchIDToken()
 	if err != nil {
 		log.Fatal(errors.Wrap(err, "error fetching id token"))
 	}
 
-	result, err = fetchAWSCredentials(arn, idToken.rawToken, idToken.email)
+	result, err = fetchAWSCredentials(*sourceRole, idToken.rawToken, idToken.email)
 	if err != nil {
 		log.Fatal(errors.Wrap(err, fmt.Sprintf(`error fetching aws credentials (is %q an allowed value for "accounts.google.com:sub" in Trust relationship conditions for role?)`, idToken.sub)))
+	}
+
+	if *sourceRole != arn {
+		result, err = assumeRole(arn, idToken.email+","+*result.Credentials.AccessKeyId, result)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	if err := printCredentials(result); err != nil {
