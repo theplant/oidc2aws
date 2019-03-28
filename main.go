@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -47,7 +49,14 @@ type idTokenMessage struct {
 
 var envFormat = flag.Bool("env", false, "output credentials in format suitable for use with $()")
 
+var loginFormat = flag.Bool("login", false, "generate login link for AWS web console")
+
 var sourceRole = flag.String("sourcerole", "", "source role to assume before assuming target role")
+
+func openInBrowser(url string) error {
+	cmd := exec.Command("open", url)
+	return errors.Wrap(cmd.Run(), "error opening page in browser")
+}
 
 func fetchIDToken() (*idTokenResult, error) {
 	oc := oidcConfig{}
@@ -96,9 +105,9 @@ func fetchIDToken() (*idTokenResult, error) {
 		// browser window after authentication :(
 		// oauth2.SetAuthURLParam("prompt", "consent")
 	)
-	cmd := exec.Command("open", url)
-	if err := cmd.Run(); err != nil {
-		return nil, errors.Wrap(err, "error opening page in browser")
+
+	if err := openInBrowser(url); err != nil {
+		return nil, err
 	}
 
 	server := http.Server{
@@ -345,22 +354,81 @@ func credentialsForRole(arn string) (*result, error) {
 	return &result, nil
 }
 
-func printCredentials(result *result) error {
-	if !*envFormat {
-		b, err := json.Marshal(result)
-		if err != nil {
-			return errors.Wrap(err, "error serialising credentials to json")
-		}
+type signinSession struct {
+	SessionId    string `json:"sessionId"`
+	SessionKey   string `json:"sessionKey"`
+	SessionToken string `json:"sessionToken"`
+}
 
-		// Write credentials to stdout
-		_, err = os.Stdout.Write(b)
+type signinToken struct {
+	SigninToken string
+}
 
+// https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_enable-console-custom-url.html
+func fetchSigninToken(result *result) error {
+
+	sessionData := signinSession{
+		SessionId:    *result.Credentials.AccessKeyId,
+		SessionKey:   *result.Credentials.SecretAccessKey,
+		SessionToken: *result.Credentials.SessionToken,
+	}
+
+	b, err := json.Marshal(sessionData)
+
+	if err != nil {
+		return errors.Wrap(err, "failed to encode signin json data")
+	}
+
+	tokenURL := fmt.Sprintf("https://signin.aws.amazon.com/federation?Action=getSigninToken&Session=%s", url.QueryEscape(string(b)))
+
+	resp, err := http.DefaultClient.Get(tokenURL)
+	if err != nil {
+		return errors.Wrap(err, "failed to fetch signin token for credentials")
+	} else if resp.StatusCode != 200 {
+		return fmt.Errorf("getSigninToken returned %d instead of 200", resp.StatusCode)
+	}
+
+	buffer := new(bytes.Buffer)
+	buffer.ReadFrom(resp.Body)
+	token := signinToken{}
+	err = json.Unmarshal(buffer.Bytes(), &token)
+	if err != nil {
+		return errors.Wrap(err, "failed to decode getSigninToken response")
+	}
+
+	destination := "https://console.aws.amazon.com/"
+
+	loginUrl := fmt.Sprintf("https://signin.aws.amazon.com/federation?Action=login&Destination=%s&SigninToken=%s",
+		url.QueryEscape(destination),
+		token.SigninToken,
+	)
+
+	if err := openInBrowser(loginUrl); err != nil {
 		return err
 	}
-	fmt.Printf("export AWS_ACCESS_KEY_ID=%s\n", *result.Credentials.AccessKeyId)
-	fmt.Printf("export AWS_SECRET_ACCESS_KEY=%s\n", *result.Credentials.SecretAccessKey)
-	fmt.Printf("export AWS_SESSION_TOKEN=%s\n", *result.Credentials.SessionToken)
+
 	return nil
+}
+
+func printCredentials(result *result) error {
+	if *envFormat {
+		fmt.Printf("export AWS_ACCESS_KEY_ID=%s\n", *result.Credentials.AccessKeyId)
+		fmt.Printf("export AWS_SECRET_ACCESS_KEY=%s\n", *result.Credentials.SecretAccessKey)
+		fmt.Printf("export AWS_SESSION_TOKEN=%s\n", *result.Credentials.SessionToken)
+		return nil
+	} else if *loginFormat {
+		return fetchSigninToken(result)
+	}
+
+	b, err := json.Marshal(result)
+	if err != nil {
+		return errors.Wrap(err, "error serialising credentials to json")
+	}
+
+	// Write credentials to stdout
+	_, err = os.Stdout.Write(b)
+
+	return err
 }
 
 func main() {
