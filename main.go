@@ -33,6 +33,13 @@ type oidcConfig struct {
 	ClientID     string
 	ClientSecret string
 	HostedDomain string
+
+	Alias map[string]alias
+}
+
+type alias struct {
+	Arn        string
+	SourceRole string
 }
 
 type idTokenResult struct {
@@ -53,18 +60,16 @@ var loginFormat = flag.Bool("login", false, "generate login link for AWS web con
 
 var sourceRole = flag.String("sourcerole", "", "source role to assume before assuming target role")
 
+var aliasFlag = flag.String("alias", "", "alias configured in ~/.oidc2aws/oidcconfig")
+
+var oc = oidcConfig{}
+
 func openInBrowser(url string) error {
 	cmd := exec.Command("open", url)
 	return errors.Wrap(cmd.Run(), "error opening page in browser")
 }
 
 func fetchIDToken() (*idTokenResult, error) {
-	oc := oidcConfig{}
-
-	if _, err := toml.DecodeFile(path.Join(os.Getenv("HOME"), ".oidc2aws", "oidcconfig"), &oc); err != nil {
-		return nil, errors.Wrap(err, "error loading OIDC config")
-	}
-
 	ctx := context.Background()
 
 	provider, err := oidc.NewProvider(ctx, oc.Provider)
@@ -432,18 +437,31 @@ func printCredentials(result *result) error {
 }
 
 func main() {
+	if _, err := toml.DecodeFile(path.Join(os.Getenv("HOME"), ".oidc2aws", "oidcconfig"), &oc); err != nil {
+		log.Fatal(errors.Wrap(err, "error loading OIDC config"))
+	}
 
 	flag.Parse()
 
 	args := flag.Args()
 
 	arn := ""
-	if len(args) > 0 {
-		arn = args[0]
+	if *aliasFlag != "" {
+		alias, ok := oc.Alias[*aliasFlag]
+		if !ok {
+			log.Fatalf("unknown alias: %s", *aliasFlag)
+		}
+		arn = alias.Arn
+		sourceRole = &alias.SourceRole
+	} else {
+		if len(args) > 0 {
+			arn = args[0]
+		}
+
 	}
 
 	if arn == "" {
-		log.Fatal("no arn provided in Args[1]")
+		log.Fatal("no arn provided in Args[1] or alias")
 	}
 
 	// Check for AWS credentials for role, use them if not expired

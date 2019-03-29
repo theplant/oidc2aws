@@ -122,6 +122,36 @@ $ aws --profile=my-profile sts get-caller-identity
 }
 ```
 
+# Aliases
+
+`oidc2aws` supports an `-alias` flag. Add aliases to your `oidcconfig`
+file:
+
+```
+[alias.<alias-name>]
+arn = "arn:aws:iam::<account id>:role/<role name>"
+sourceRole = "arn:aws:iam::<account id>:role/<role name>"
+```
+
+`arn` is required, `sourceRole` is optional.
+
+and then when you invoke `oidc2aws` it will look up the alias in the
+config, instead of having to use bare ARNs:
+
+```
+oidc2aws -alias <alias-name>
+```
+
+This was added because `oidc2aws` has become useful to use directly
+from the cli, not just with `credential_process`, and using ARNs
+directly gets tedious (especially trying to remember AWS account
+ids!).
+
+I considered using AWS profiles, but this would mean parsing
+`~/.aws/config` and looking for profiles that used
+`credential_process`, and then parsing the `oidc2aws` flags out of the
+value.
+
 # Caveats
 
 * The username used when assuming the role is under control of the
