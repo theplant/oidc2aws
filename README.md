@@ -122,6 +122,66 @@ $ aws --profile=my-profile sts get-caller-identity
 }
 ```
 
+# Output Formats (`-env`)
+
+`oidc2aws` supports 2 output formats:
+
+1. JSON format suitable for use by the AWS SDK profile's `credential_process` setting:
+
+   ```
+   $ oidc2aws arn:aws:iam::123456789012:role/my-role
+   {
+     "Version": 1,
+     "AccessKeyId": "ASIA...",
+     "Expiration": "2019-03-29...",
+     "SecretAccessKey": "...",
+     "SessionToken": "..."
+   }
+   ```
+2. Env format suitable for setting environment variables in the shell, via `-env` flag
+
+   ```
+   $ oidc2aws arn:aws:iam::123456789012:role/my-role
+   export AWS_ACCESS_KEY_ID=ASIA...
+   export AWS_SECRET_ACCESS_KEY=...
+   export AWS_SESSION_TOKEN=...
+   ```
+
+   you can set these varables directly using `$()`:
+
+   ```
+   $ $(oidc2aws arn:aws:iam::123456789012:role/my-role)
+   $ env | grep AWS
+   AWS_ACCESS_KEY_ID=ASIA...
+   AWS_SECRET_ACCESS_KEY=...
+   AWS_SESSION_TOKEN=...
+   ```
+
+# `-login`: AWS Console Login
+
+You can use `oidc2aws` to automatically log in to the AWS console
+using `-login`:
+
+```
+$ oidc2aws -login arn:aws:iam::123456789012:role/my-role
+```
+
+this will open a web browser to `https://console.aws.amazon.com/` with
+session on `arn:aws:iam::123456789012:role/my-role`
+
+# `-sourcerole`: Role Chaining
+
+AWS allows roles to assume other roles, for example when you have a
+staff role that can assume more specific roles, or when using multiple
+AWS accounts and cross-account roles. `oidc2aws` provides a
+`-sourcerole` option. The behaviour modify the process described above
+
+1. After fetching the OIDC credentials `oidc2aws` uses the source-role
+   ARN in the call to `sts.AssumeRoleWithWebIdentity`.
+
+2. `oidc2aws` uses credentials from 1 to then call `sts.AssumeRole`
+   using the target ARN.
+
 # Aliases
 
 `oidc2aws` supports an `-alias` flag. Add aliases to your `oidcconfig`
