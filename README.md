@@ -169,33 +169,78 @@ $ oidc2aws -login arn:aws:iam::123456789012:role/my-role
 this will open a web browser to `https://console.aws.amazon.com/` with
 session on `arn:aws:iam::123456789012:role/my-role`
 
-# `-sourcerole`: Role Chaining
+# Role Chaining
 
 AWS allows roles to assume other roles, for example when you have a
 staff role that can assume more specific roles, or when using multiple
-AWS accounts and cross-account roles. `oidc2aws` provides a
-`-sourcerole` option. The behaviour modify the process described above
+AWS accounts and cross-account roles. `oidc2aws` supports this using
+this syntax:
 
-1. After fetching the OIDC credentials `oidc2aws` uses the source-role
-   ARN in the call to `sts.AssumeRoleWithWebIdentity`.
+```
+$ oidc2aws <role 1> <role 2> <...> <role N>
+```
 
-2. `oidc2aws` uses credentials from 1 to then call `sts.AssumeRole`
-   using the target ARN.
+This extends the behaviour described at the top of the document:
+
+1. After fetching the oidc credentials, `oidc2aws` passes the first
+   role arn (`role 1`) in the list in the call to
+   `sts.assumeRoleWithWebIdentity`.
+
+2. Then, for each role `R` in the chain, `oidc2aws` uses the credentials
+   returned from `sts.AssumeRole(R - 1)` to call `sts.AssumeRole(R)`
+
+So with:
+
+```
+$ oidc2aws <role 1> <role 2> <role 3>
+```
+
+1. Credentials `C1` for `role 1` will be acquired via
+   `sts.assumeRoleWithWebIdentity(<role 1>)` using the OIDC ID token.
+
+2. Credentials `C2` for `role 2` will be acquired via
+   `stsAssumeRole(<role 2>)` using credentials `C1`.
+
+3. Finally, Credentials `C3` will be acquired via `stsAssumeRole(<role
+   3>)` using credentials `C2`.
+
+
+## (Deprecated) `-sourcerole`: Role Chaining
+
+`oidc2aws` also provides a `-sourcerole` option for role chaining. A command of
+
+```
+$ oidc2aws -sourcerole arn:aws:iam::123456789012:role/source-role arn:aws:iam::999999999999:role/target-role
+```
+
+is equivalent to the same command without `-sourcerole`:
+
+```
+$ oidc2aws arn:aws:iam::123456789012:role/source-role arn:aws:iam::999999999999:role/target-role
+```
 
 # Aliases
 
 `oidc2aws` supports an `-alias` flag. Add aliases to your `oidcconfig`
 file:
 
+Simple case, assuming a single role:
+
 ```
 [alias.<alias-name>]
 arn = "arn:aws:iam::<account id>:role/<role name>"
-sourceRole = "arn:aws:iam::<account id>:role/<role name>"
 ```
 
-`arn` is required, `sourceRole` is optional.
+Role chaining:
 
-and then when you invoke `oidc2aws` it will look up the alias in the
+```
+[alias.<alias-name>]
+roleChain = ["arn:aws:iam::<account id>:role/<source role name>", "arn:aws:iam::<account id>:role/<target role name>"]
+```
+
+Either `arn` or `roleChain` is required.
+
+Then, when you invoke `oidc2aws` it will look up the alias in the
 config, instead of having to use bare ARNs:
 
 ```
@@ -212,13 +257,32 @@ I considered using AWS profiles, but this would mean parsing
 `credential_process`, and then parsing the `oidc2aws` flags out of the
 value.
 
+## Deprecated Legacy Alias Syntax
+
+Similar to `-sourcerole`, aliases have a legacy configuration option
+`sourceRole`:
+
+```
+[alias.<alias-name>]
+arn = "arn:aws:iam::<account id>:role/<target role name>"
+sourceRole = "arn:aws:iam::<account id>:role/<source role name>"
+```
+
+which is equivalent to:
+
+```
+[alias.<alias-name>]
+roleChain = ["arn:aws:iam::<account id>:role/<source role name>", "arn:aws:iam::<account id>:role/<target role name>"]
+```
+
+
 # Caveats
 
 * The username used when assuming the role is under control of the
   client (meaning that `oidc2aws` arbitrarily sets it to the email
   address of the user), and is not a reliable indicator of the user's
   identity in AWS (meaning it would be trivial to spoof it to be
-  someone else's email address). 
+  someone else's email address).
 
   You can determine the true G Suite account used by looking at the
   API event data in CloudTrail in
