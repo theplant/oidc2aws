@@ -40,6 +40,7 @@ type oidcConfig struct {
 type alias struct {
 	Arn        string
 	SourceRole string
+	RoleChain  []string
 }
 
 type idTokenResult struct {
@@ -445,27 +446,50 @@ func main() {
 
 	args := flag.Args()
 
-	arn := ""
+	initialRole := ""
+	roles := []string{}
+
+	// 1. len(args) == 1 => initialRole = args[0]
+	// 2. len(args) == 1, sourceRole != nil => initialRole = *sourceRole, roles = args <= legacy
+	// 3. alias(arn) => initialRole = arn, roles = []
+	// 4. alias(arn, sourceRole) => initialRole = sourceRole, roles = [arn] <= legacy
+	// 5. alias(rolechain) => initialRole = rolechain[0], roles = rolechain[1:]
+	// 5. len(args) > 1 => initialRole = args[0], roles = args[1:]
+
 	if *aliasFlag != "" {
 		alias, ok := oc.Alias[*aliasFlag]
 		if !ok {
 			log.Fatalf("unknown alias: %s", *aliasFlag)
 		}
-		arn = alias.Arn
-		sourceRole = &alias.SourceRole
+		if len(alias.RoleChain) > 0 {
+			initialRole = alias.RoleChain[0]
+			roles = alias.RoleChain[1:]
+		} else {
+			initialRole = alias.Arn
+			if alias.SourceRole != "" {
+				roles = []string{alias.SourceRole}
+			}
+		}
+	} else if *sourceRole != "" {
+		initialRole = *sourceRole
+		roles = args
 	} else {
 		if len(args) > 0 {
-			arn = args[0]
+			initialRole = args[0]
+			roles = args[1:]
 		}
-
 	}
 
-	if arn == "" {
+	if initialRole == "" {
 		log.Fatal("no arn provided in Args[1] or alias")
 	}
 
 	// Check for AWS credentials for role, use them if not expired
-	result, err := credentialsForRole(arn)
+	finalRole := initialRole
+	if len(roles) > 0 {
+		finalRole = roles[len(roles)-1]
+	}
+	result, err := credentialsForRole(finalRole)
 	if err != nil {
 		log.Fatal(errors.Wrap(err, "error reading credentials for role"))
 	} else if result != nil {
@@ -481,22 +505,18 @@ func main() {
 	// Cache ID token
 	// Fetch AWS credentials
 
-	if *sourceRole == "" {
-		*sourceRole = arn
-	}
-
 	idToken, err := fetchIDToken()
 	if err != nil {
 		log.Fatal(errors.Wrap(err, "error fetching id token"))
 	}
 
-	result, err = fetchAWSCredentials(*sourceRole, idToken.rawToken, idToken.email)
+	result, err = fetchAWSCredentials(initialRole, idToken.rawToken, idToken.email)
 	if err != nil {
 		log.Fatal(errors.Wrap(err, fmt.Sprintf(`error fetching aws credentials (is %q an allowed value for "accounts.google.com:sub" in Trust relationship conditions for role?)`, idToken.sub)))
 	}
 
-	if *sourceRole != arn {
-		result, err = assumeRole(arn, idToken.email+","+*result.Credentials.AccessKeyId, result)
+	for _, role := range roles {
+		result, err = assumeRole(role, idToken.email+","+*result.Credentials.AccessKeyId, result)
 		if err != nil {
 			log.Fatal(err)
 		}
