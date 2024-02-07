@@ -138,7 +138,9 @@ $ aws --profile=my-profile sts get-caller-identity
      "SessionToken": "..."
    }
    ```
-2. Env format suitable for setting environment variables in the shell, via `-env` flag
+2. Env format suitable for setting environment variables in the shell, via `-env` flag.
+
+   _Note that the command for setting the environment variables is for the default shell of the current user._
 
    ```
    $ oidc2aws arn:aws:iam::123456789012:role/my-role
@@ -155,6 +157,21 @@ $ aws --profile=my-profile sts get-caller-identity
    AWS_ACCESS_KEY_ID=ASIA...
    AWS_SECRET_ACCESS_KEY=...
    AWS_SESSION_TOKEN=...
+   ```
+
+   If you are using `fish` shell, you can do this instead:
+   ```
+   $ oidc2aws -env arn:aws:iam::123456789012:role/my-role | source
+   ```
+
+   If you are not using the default shell of current user, you can set the shell
+   type explicitly by `-shell` flag:
+
+   ```
+   $ oidc2aws -env -shell csh arn:aws:iam::123456789012:role/my-role
+   setenv AWS_ACCESS_KEY_ID ASIA...
+   setenv AWS_SECRET_ACCESS_KEY ...
+   setenv AWS_SESSION_TOKEN ...
    ```
 
 # `-login`: AWS Console Login

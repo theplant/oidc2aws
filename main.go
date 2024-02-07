@@ -39,6 +39,8 @@ var sourceRole = flag.String("sourcerole", "", "source role to assume before ass
 
 var aliasFlag = flag.String("alias", "", "alias configured in ~/.oidc2aws/oidcconfig")
 
+var shell = flag.String("shell", "", "shell type, possible values: bash, zsh, sh, fish, csh, tcsh")
+
 func arnFilename(arn string) string {
 	arn = strings.Replace(arn, "/", "-", -1)
 	arn = strings.Replace(arn, ":", "-", -1)
@@ -47,11 +49,18 @@ func arnFilename(arn string) string {
 
 func printCredentials(result *result) error {
 	if *envFormat {
-		// Get the name of current shell
-		shell := os.Getenv("SHELL")
+		// Get the name of current user's default shell
+		default_shell := os.Getenv("SHELL")
+
+		current_shell := path.Base(default_shell)
+
+		// If the user has specified a shell, use that instead
+		if *shell != "" {
+			current_shell = *shell
+		}
 
 		// Check the shell type and print the appropriate command to export the variable
-		switch path.Base(shell) {
+		switch current_shell {
 		case "bash", "zsh", "sh":
 			// For bash, zsh and sh, use the export command
 			fmt.Printf("export AWS_ACCESS_KEY_ID=%s\n", *result.Credentials.AccessKeyId)
@@ -69,7 +78,7 @@ func printCredentials(result *result) error {
 			fmt.Printf("setenv AWS_SESSION_TOKEN %s\n", *result.Credentials.SessionToken)
 		default:
 			// For other shells, return an error
-			return errors.Errorf("unsupported shell: %s", shell)
+			return errors.Errorf("unsupported shell: %s", current_shell)
 		}
 
 		return nil
