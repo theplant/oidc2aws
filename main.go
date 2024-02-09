@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"path"
@@ -257,7 +256,7 @@ func put(key string, val interface{}) error {
 		return errors.Wrap(err, "error serialising credentials to json")
 	}
 
-	err = ioutil.WriteFile(arnFilename(key), bytes, 0600)
+	err = os.WriteFile(arnFilename(key), bytes, 0600)
 	if err != nil {
 		return errors.Wrap(err, fmt.Sprintf("error writing credentials to file %q", key))
 	}
@@ -269,7 +268,7 @@ var errNotFound = errors.New("no value for key")
 
 func get(key string, val interface{}) error {
 	debugf("fetching cached credentials for %s...", key)
-	data, err := ioutil.ReadFile(arnFilename(key))
+	data, err := os.ReadFile(arnFilename(key))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return errNotFound
