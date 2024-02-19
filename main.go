@@ -61,11 +61,6 @@ func printCredentials(result *result) error {
 
 		// Check the shell type and print the appropriate command to export the variable
 		switch current_shell {
-		case "bash", "zsh", "sh":
-			// For bash, zsh and sh, use the export command
-			fmt.Printf("export AWS_ACCESS_KEY_ID=%s\n", *result.Credentials.AccessKeyId)
-			fmt.Printf("export AWS_SECRET_ACCESS_KEY=%s\n", *result.Credentials.SecretAccessKey)
-			fmt.Printf("export AWS_SESSION_TOKEN=%s\n", *result.Credentials.SessionToken)
 		case "fish":
 			// For fish, use the set command
 			fmt.Printf("set -x AWS_ACCESS_KEY_ID %s\n", *result.Credentials.AccessKeyId)
@@ -76,9 +71,13 @@ func printCredentials(result *result) error {
 			fmt.Printf("setenv AWS_ACCESS_KEY_ID %s\n", *result.Credentials.AccessKeyId)
 			fmt.Printf("setenv AWS_SECRET_ACCESS_KEY %s\n", *result.Credentials.SecretAccessKey)
 			fmt.Printf("setenv AWS_SESSION_TOKEN %s\n", *result.Credentials.SessionToken)
+		case "bash", "zsh", "sh":
+			fallthrough
 		default:
-			// For other shells, return an error
-			return errors.Errorf("unsupported shell: %s", current_shell)
+			// For bash, zsh, sh and any other shell, use the export command
+			fmt.Printf("export AWS_ACCESS_KEY_ID=%s\n", *result.Credentials.AccessKeyId)
+			fmt.Printf("export AWS_SECRET_ACCESS_KEY=%s\n", *result.Credentials.SecretAccessKey)
+			fmt.Printf("export AWS_SESSION_TOKEN=%s\n", *result.Credentials.SessionToken)
 		}
 
 		return nil
