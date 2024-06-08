@@ -1,22 +1,18 @@
 module github.com/theplant/oidc2aws
 
-go 1.19
+go 1.22
 
 require (
-	github.com/BurntSushi/toml v0.3.1
-	github.com/aws/aws-sdk-go v1.44.190
-	github.com/coreos/go-oidc v2.0.0+incompatible
+	github.com/BurntSushi/toml v1.4.0
+	github.com/aws/aws-sdk-go v1.53.18
+	github.com/coreos/go-oidc/v3 v3.10.0
 	github.com/pkg/errors v0.9.1
-	golang.org/x/oauth2 v0.0.0-20181106182150-f42d05182288
+	golang.org/x/oauth2 v0.21.0
 )
 
 require (
-	github.com/golang/protobuf v1.2.0 // indirect
+	github.com/go-jose/go-jose/v4 v4.0.1 // indirect
+	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
-	github.com/pquerna/cachecontrol v0.0.0-20180517163645-1555304b9b35 // indirect
-	github.com/stretchr/testify v1.8.1 // indirect
 	golang.org/x/crypto v0.21.0 // indirect
-	golang.org/x/net v0.23.0 // indirect
-	google.golang.org/appengine v1.3.0 // indirect
-	gopkg.in/square/go-jose.v2 v2.1.9 // indirect
 )
