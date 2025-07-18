@@ -1,6 +1,7 @@
 module github.com/theplant/oidc2aws
 
-go 1.22
+go 1.23.0
+
 toolchain go1.24.1
 
 require (
@@ -8,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go v1.53.18
 	github.com/coreos/go-oidc/v3 v3.10.0
 	github.com/pkg/errors v0.9.1
-	golang.org/x/oauth2 v0.21.0
+	golang.org/x/oauth2 v0.27.0
 )
 
 require (
