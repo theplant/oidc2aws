@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"runtime"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -31,7 +32,15 @@ type idTokenMessage struct { // One of (either)...
 }
 
 func openInBrowser(url string) error {
-	cmd := exec.Command("open", url)
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux", "freebsd", "openbsd", "netbsd":
+		cmd = exec.Command("xdg-open", url)
+	default:
+		return errors.New("unsupported platform for opening browser")
+	}
 	return errors.Wrap(cmd.Run(), "error opening page in browser")
 }
 
