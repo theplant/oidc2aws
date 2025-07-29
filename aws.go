@@ -132,6 +132,14 @@ func fetchSigninToken(result *result) error {
 		token.SigninToken,
 	)
 
+	// Format URL for Firefox container extension if flag is set
+	if *firefoxContainer {
+		loginUrl = fmt.Sprintf("ext+granted-containers:name=%s&url=%s&color=&icon=",
+			url.QueryEscape(*aliasFlag),
+			url.QueryEscape(loginUrl),
+		)
+	}
+
 	if err := openInBrowser(loginUrl); err != nil {
 		return err
 	}

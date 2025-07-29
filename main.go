@@ -41,6 +41,8 @@ var aliasFlag = flag.String("alias", "", "alias configured in ~/.oidc2aws/oidcco
 
 var shell = flag.String("shell", "", "shell type, possible values: bash, zsh, sh, fish, csh, tcsh")
 
+var firefoxContainer = flag.Bool("firefox-container", false, "use Firefox container extension format for login URLs")
+
 func arnFilename(arn string) string {
 	arn = strings.Replace(arn, "/", "-", -1)
 	arn = strings.Replace(arn, ":", "-", -1)
