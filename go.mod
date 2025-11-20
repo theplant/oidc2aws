@@ -1,6 +1,6 @@
 module github.com/theplant/oidc2aws
 
-go 1.23.0
+go 1.24.0
 
 toolchain go1.24.1
 
@@ -15,5 +15,5 @@ require (
 require (
 	github.com/go-jose/go-jose/v4 v4.0.5 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
-	golang.org/x/crypto v0.35.0 // indirect
+	golang.org/x/crypto v0.45.0 // indirect
 )
